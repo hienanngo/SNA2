@@ -4,9 +4,6 @@ import networkx as nx
 from networkx.algorithms import bipartite
 import matplotlib.pyplot as plt
 
-# App title
-st.title("Airbnb Social Network Analysis - Washington D.C.")
-
 # Load dataset
 @st.cache_data
 def load_data():
@@ -21,8 +18,9 @@ def load_data():
     df["listing_id"] = df["listing_id"].astype(str)
     return df
 
+st.title("🏠 Airbnb Social Network Analysis (Washington D.C.)")
 df = load_data()
-st.write("### Preview of the dataset", df.head())
+st.write("### 🔍 Sample of the dataset", df.head())
 
 # Build bipartite graph
 @st.cache_data
@@ -35,43 +33,48 @@ def build_graph(df):
     return G
 
 G = build_graph(df)
-
-# Identify sets
 guests = {n for n, d in G.nodes(data=True) if d["bipartite"] == 0}
 listings = set(G) - guests
 
-# Choose network type
-network_type = st.radio("Choose network view", ["Bipartite", "Guest-to-Guest", "Listing-to-Listing"])
+# --- Centrality View ---
+st.header("🔝 Centrality View")
 
-# Choose sample size
-sample_size = st.slider("Limit number of nodes (for performance)", min_value=50, max_value=1000, value=200)
+# Select mode and number of nodes
+mode = st.radio("Choose projection type", ["Guest-to-Guest", "Listing-to-Listing"])
+limit = st.slider("Max nodes to analyze", min_value=50, max_value=2000, value=300)
 
-# Filter subgraph
-sub_nodes = list(guests)[:sample_size] + list(listings)[:sample_size]
-G_sub = G.subgraph(sub_nodes)
+if mode == "Guest-to-Guest":
+    nodes = [n for n in guests if G.degree[n] > 3][:limit]
+elif mode == "Listing-to-Listing":
+    nodes = [n for n in listings if G.degree[n] > 3][:limit]
 
-# Project network
-if network_type == "Bipartite":
-    G_plot = G_sub
-elif network_type == "Guest-to-Guest":
-    G_plot = bipartite.projected_graph(G, guests)
-    G_plot = G_plot.subgraph(list(G_plot.nodes)[:sample_size])
-elif network_type == "Listing-to-Listing":
-    G_plot = bipartite.projected_graph(G, listings)
-    G_plot = G_plot.subgraph(list(G_plot.nodes)[:sample_size])
+if len(nodes) < 2:
+    st.warning("Not enough nodes to build a projection.")
+else:
+    G_proj = bipartite.projected_graph(G, nodes)
+    st.write(f"Network: {G_proj.number_of_nodes()} nodes / {G_proj.number_of_edges()} edges")
 
-# Plot the graph
-st.write("### Network Graph")
-fig, ax = plt.subplots(figsize=(10, 8))
-pos = nx.spring_layout(G_plot, seed=42)
-nx.draw(
-    G_plot,
-    pos,
-    with_labels=False,
-    node_size=30,
-    node_color="skyblue",
-    edge_color="gray",
-    alpha=0.7,
-    ax=ax
-)
-st.pyplot(fig)
+    # Compute degree centrality
+    centrality = nx.degree_centrality(G_proj)
+    top_nodes = sorted(centrality.items(), key=lambda x: x[1], reverse=True)[:10]
+    st.write("### 📊 Top Central Nodes")
+    st.table(pd.DataFrame(top_nodes, columns=["Node ID", "Degree Centrality"]))
+
+    # Select node to visualize
+    selected_node = st.selectbox("View neighborhood of node:", [n for n, _ in top_nodes])
+
+    # Plot ego graph
+    ego = nx.ego_graph(G_proj, selected_node, radius=1)
+    pos = nx.spring_layout(ego, seed=42)
+    fig, ax = plt.subplots(figsize=(8, 6))
+    nx.draw(
+        ego,
+        pos,
+        with_labels=True,
+        node_color="orange",
+        edge_color="gray",
+        node_size=300,
+        ax=ax
+    )
+    plt.title(f"Ego Network of: {selected_node}")
+    st.pyplot(fig)
